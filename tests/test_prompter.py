@@ -17,8 +17,13 @@ def test_raw_text_template():
 
 
 def test_missing_both_raises():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Either prompt_template or template_text must be provided"):
         Prompter()
+
+
+def test_both_parameters_raises():
+    with pytest.raises(ValueError, match="Cannot provide both"):
+        Prompter(template_text="Hello", prompt_template="template")
 
 
 def test_base_model_data():

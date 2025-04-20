@@ -5,7 +5,7 @@ A prompt management module using Jinja to generate complex prompts with simple t
 import os
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional, Union, Callable
 
 from jinja2 import Environment, FileSystemLoader, Template
 from pydantic import BaseModel
@@ -39,24 +39,36 @@ class Prompter:
 
     def __init__(
         self,
-        prompt_template: Optional[str] = None,
-        model: Optional[Union[str, Any]] = None,
-        template_text: Optional[str] = None,
-        prompt_dir: Optional[str] = None,
+        prompt_template: str | None = None,
+        model: str | Any | None = None,
+        prompt_variation: str = "default",
+        prompt_dir: str | None = None,
+        template_text: str | None = None,
+        parser: Callable[[str], dict[str, Any]] | None = None,
+        *args,
+        **kwargs,
     ) -> None:
         """Initialize the Prompter with a template name, model, and optional custom directory.
 
         Args:
             prompt_template (str, optional): The name of the prompt template (without .jinja extension).
             model (Union[str, Any], optional): The model to use for generation.
-            template_text (str, optional): The raw text of the template.
+            prompt_variation (str, optional): The variation of the prompt template.
             prompt_dir (str, optional): Custom directory to search for templates.
+            template_text (str, optional): The raw text of the template.
+            parser (Callable[[str], dict[str, Any]], optional): The parser to use for generation.
         """
+        if template_text is not None and prompt_template is not None:
+            raise ValueError(
+                "Cannot provide both template_text and prompt_template. Choose one or the other."
+            )
         self.prompt_template = prompt_template
-        self.template = None
-        self.template_text = template_text
-        self.model = model or os.getenv("OPENAI_MODEL", "gpt-4-turbo")
+        self.prompt_variation = prompt_variation
         self.prompt_dir = prompt_dir
+        self.template_text = template_text
+        self.parser = parser
+        self.template: Template | None = None
+        self.model = model or os.getenv("OPENAI_MODEL", "gpt-4-turbo")
         self._setup_template(template_text, prompt_dir)
 
     def _setup_template(
