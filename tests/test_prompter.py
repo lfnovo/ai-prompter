@@ -32,24 +32,35 @@ def test_base_model_data():
     assert "Value is BAR" in result
 
 
-def test_to_langchain_import_error():
-    # Test for ImportError when langchain is not installed is not feasible in test environment
-    # Instead, test for successful conversion or ValueError in case of issues
+def test_to_langchain_conversion():
+    # Test successful conversion for text-based template
+    template_text = "Hello, {{ name }}!"
+    p = Prompter(template_text=template_text)
+    lc_prompt = p.to_langchain()
+    assert lc_prompt is not None, "LangChain conversion should succeed with text template"
+    assert hasattr(lc_prompt, "invoke"), "Converted object should have invoke method"
+
+    # Test successful conversion for file-based template
     with tempfile.TemporaryDirectory() as temp_dir:
-        template_path = os.path.join(temp_dir, "test.jinja")
+        # Create main template
+        template_path = os.path.join(temp_dir, "main.jinja")
         with open(template_path, "w") as f:
-            f.write("Hello, {{ name }}!")
-        p = Prompter(prompt_template="test", prompt_dir=temp_dir)
-        try:
-            lc_prompt = p.to_langchain()
-            assert (
-                lc_prompt is not None
-            ), "LangChain conversion should succeed with file-based template"
-        except ImportError:
-            # If langchain is not installed, this is acceptable
-            pass
-        except ValueError as e:
-            assert False, f"Unexpected ValueError during LangChain conversion: {str(e)}"
+            f.write("Hello, {{ name }}!\n{% include 'included.jinja' %}")
+        
+        # Create included template
+        included_path = os.path.join(temp_dir, "included.jinja")
+        with open(included_path, "w") as f:
+            f.write("Included content for {{ name }}")
+            
+        p = Prompter(prompt_template="main", prompt_dir=temp_dir)
+        lc_prompt = p.to_langchain()
+        assert lc_prompt is not None, "LangChain conversion should succeed with file-based template"
+        assert hasattr(lc_prompt, "invoke"), "Converted object should have invoke method"
+        
+        # Test invoking the template
+        result = lc_prompt.invoke({"name": "Test"})
+        assert "Hello, Test!" in str(result), "Rendered output should contain the substituted variable"
+        assert "Included content for Test" in str(result), "Rendered output should include content from included template with substituted variable"
 
 
 def test_to_langchain_no_template():

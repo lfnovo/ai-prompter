@@ -56,6 +56,7 @@ class Prompter:
         self.template = None
         self.template_text = template_text
         self.model = model or os.getenv("OPENAI_MODEL", "gpt-4-turbo")
+        self.prompt_dir = prompt_dir
         self._setup_template(template_text, prompt_dir)
 
     def _setup_template(
@@ -99,26 +100,72 @@ class Prompter:
             raise ImportError(
                 "langchain-core is required for to_langchain; install with `pip install .[langchain]`"
             )
+        from jinja2 import Template, Environment, FileSystemLoader
+        import os
+        import re
         if self.template_text is not None:
             template_content = self.template_text
+            return ChatPromptTemplate.from_template(
+                template_content, template_format="jinja2"
+            )
         elif self.prompt_template is not None and self.template is not None:
-            # For file-based templates, we need to get the raw string content
+            # For file-based templates, we need to get the raw string content with includes resolved
             if isinstance(self.template, Template):
-                # If we have a Jinja2 Template object, we might not have the raw string
-                # Try to read the file from the environment's loader search path
-                template_content = None
-                for searchpath in self.template.environment.loader.searchpath:
-                    template_file = os.path.join(
-                        searchpath, f"{self.prompt_template}.jinja"
+                try:
+                    # Use the same logic as Prompter initialization for finding prompt_dir
+                    if self.prompt_dir is None:
+                        # Check for PROMPTS_PATH environment variable
+                        prompts_path = os.environ.get("PROMPTS_PATH")
+                        if prompts_path:
+                            self.prompt_dir = prompts_path
+                        else:
+                            # Check a series of default directories
+                            potential_dirs = [
+                                os.path.join(os.getcwd(), "prompts"),
+                                os.path.join(os.path.dirname(os.path.abspath(__file__)), "prompts"),
+                                os.path.join(os.path.expanduser("~"), ".prompts"),
+                            ]
+                            for dir_path in potential_dirs:
+                                if os.path.exists(dir_path):
+                                    self.prompt_dir = dir_path
+                                    break
+                            if self.prompt_dir is None:
+                                raise ValueError(
+                                    "No prompt directory found. Please set PROMPTS_PATH environment variable "
+                                    "or specify prompt_dir when initializing Prompter with a prompt_template."
+                                )
+                    # Function to manually resolve includes while preserving variables
+                    def resolve_includes(template_name, base_dir, visited=None):
+                        if visited is None:
+                            visited = set()
+                        if template_name in visited:
+                            raise ValueError(f"Circular include detected for {template_name}")
+                        visited.add(template_name)
+                        # Ensure we don't add .jinja if it's already in the name
+                        if template_name.endswith('.jinja'):
+                            template_file = os.path.join(base_dir, template_name)
+                        else:
+                            template_file = os.path.join(base_dir, f"{template_name}.jinja")
+                        if not os.path.exists(template_file):
+                            raise ValueError(f"Template file {template_file} not found")
+                        with open(template_file, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                        # Find all include statements
+                        include_pattern = r"{%\s*include\s*['\"]([^'\"]+)['\"]\s*%}"
+                        matches = re.findall(include_pattern, content)
+                        for included_template in matches:
+                            included_content = resolve_includes(included_template, base_dir, visited)
+                            placeholder = "{% include '" + included_template + "' %}"
+                            content = content.replace(placeholder, included_content)
+                        visited.remove(template_name)
+                        return content
+                    # Resolve includes for the main template
+                    template_content = resolve_includes(self.prompt_template, self.prompt_dir)
+                    return ChatPromptTemplate.from_template(
+                        template_content, template_format="jinja2"
                     )
-                    if os.path.exists(template_file):
-                        with open(template_file, "r") as f:
-                            template_content = f.read()
-                        break
-                if template_content is None:
-                    raise ValueError(
-                        "Could not load file-based template content for LangChain conversion"
-                    )
+                except Exception as e:
+                    raise ValueError(f"Error processing template for LangChain: {str(e)}")
             else:
                 raise ValueError(
                     "Template is not properly initialized for LangChain conversion"
@@ -127,9 +174,6 @@ class Prompter:
             raise ValueError(
                 "Either prompt_template with a valid template or template_text must be provided for LangChain conversion"
             )
-        return ChatPromptTemplate.from_template(
-            template_content, template_format="jinja2"
-        )
 
     @classmethod
     def from_text(
