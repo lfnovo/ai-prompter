@@ -5,7 +5,7 @@ A prompt management module using Jinja to generate complex prompts with simple t
 import os
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, Optional, Union, Callable
+from typing import Any, Dict, List, Optional, Union, Callable
 
 from jinja2 import Environment, FileSystemLoader, Template
 from pydantic import BaseModel
@@ -36,6 +36,8 @@ class Prompter:
     template: Optional[Union[str, Template]] = None
     template_text: Optional[str] = None
     parser: Optional[Any] = None
+    text_templates: Optional[Dict[str, str]] = None
+    prompt_folders: Optional[List[str]] = None
 
     def __init__(
         self,
@@ -69,6 +71,8 @@ class Prompter:
         self.parser = parser
         self.template: Template | None = None
         self.model = model or os.getenv("OPENAI_MODEL", "gpt-4-turbo")
+        self.text_templates = {}
+        self.prompt_folders = []
         self._setup_template(template_text, prompt_dir)
 
     def _setup_template(
@@ -100,9 +104,11 @@ class Prompter:
                 prompt_dirs.append(prompt_path_default)
             env = Environment(loader=FileSystemLoader(prompt_dirs))
             self.template = env.get_template(f"{self.prompt_template}.jinja")
+            self.prompt_folders = prompt_dirs
         else:
             self.template_text = template_text
             self.template = Template(template_text)
+            self.text_templates[self.prompt_template] = template_text
 
     def to_langchain(self):
         # Support for both text-based and file-based templates with LangChain
@@ -186,6 +192,28 @@ class Prompter:
             raise ValueError(
                 "Either prompt_template with a valid template or template_text must be provided for LangChain conversion"
             )
+
+    def template_location(self, template_name: str) -> str:
+        """
+        Returns the location of the template used for the given template name.
+        If the template is a text template (not a file), returns 'text'.
+        If the template is not found, returns 'not found'.
+        
+        Args:
+            template_name (str): The name of the template to check.
+        
+        Returns:
+            str: The file path of the template, or 'text' if it's a text template, or 'not found' if the template doesn't exist.
+        """
+        if template_name in self.text_templates:
+            return 'text'
+        
+        for folder in self.prompt_folders:
+            template_file = os.path.join(folder, f"{template_name}.jinja")
+            if os.path.exists(template_file):
+                return template_file
+        
+        return 'not found'
 
     @classmethod
     def from_text(
