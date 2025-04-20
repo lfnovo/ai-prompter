@@ -13,7 +13,7 @@ from pydantic import BaseModel
 prompt_path_default = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "prompts"
 )
-prompt_path_custom = os.getenv("PROMPT_PATH")
+prompt_path_custom = os.getenv("PROMPTS_PATH")
 
 env_default = Environment(loader=FileSystemLoader(prompt_path_default))
 
@@ -34,95 +34,117 @@ class Prompter:
     prompt_variation: Optional[str] = "default"
     prompt_text: Optional[str] = None
     template: Optional[Union[str, Template]] = None
+    template_text: Optional[str] = None
     parser: Optional[Any] = None
 
-    def __init__(self, prompt_template=None, prompt_text=None, parser=None):
-        """
-        Initialize the Prompter with either a template file or raw text.
+    def __init__(
+        self,
+        prompt_template: Optional[str] = None,
+        model: Optional[Union[str, Any]] = None,
+        template_text: Optional[str] = None,
+        prompt_dir: Optional[str] = None,
+    ) -> None:
+        """Initialize the Prompter with a template name, model, and optional custom directory.
 
         Args:
-            prompt_template (str, optional): The name of the prompt template file.
-            prompt_text (str, optional): The raw prompt text.
+            prompt_template (str, optional): The name of the prompt template (without .jinja extension).
+            model (Union[str, Any], optional): The model to use for generation.
+            template_text (str, optional): The raw text of the template.
+            prompt_dir (str, optional): Custom directory to search for templates.
         """
         self.prompt_template = prompt_template
-        self.prompt_text = prompt_text
-        self.parser = parser
-        self.setup()
+        self.template = None
+        self.template_text = template_text
+        self.model = model or os.getenv("OPENAI_MODEL", "gpt-4-turbo")
+        self._setup_template(template_text, prompt_dir)
 
-    def setup(self):
+    def _setup_template(
+        self, template_text: Optional[str] = None, prompt_dir: Optional[str] = None
+    ) -> None:
+        """Set up the Jinja2 template based on the provided template file or text.
+
+        Args:
+            template_text (str, optional): The raw text of the template.
+            prompt_dir (str, optional): Custom directory to search for templates.
         """
-        Set up the Jinja2 template based on the provided template file or text.
-        Raises:
-            ValueError: If neither prompt_template nor prompt_text is provided, or if template name is empty.
-        """
-        if self.prompt_template is not None:
+        if template_text is None:
+            if self.prompt_template is None:
+                raise ValueError(
+                    "Either prompt_template or template_text must be provided"
+                )
             if not self.prompt_template:
                 raise ValueError("Template name cannot be empty")
-            # attempt to load from custom path at runtime
-            custom_path = os.getenv("PROMPT_PATH")
-            if custom_path and os.path.exists(custom_path):
-                try:
-                    env = Environment(loader=FileSystemLoader(custom_path))
-                    self.template = env.get_template(f"{self.prompt_template}.jinja")
-                    return
-                except Exception:
-                    pass
-            # fallback to default path
-            try:
-                env = Environment(loader=FileSystemLoader(prompt_path_default))
-                self.template = env.get_template(f"{self.prompt_template}.jinja")
-            except Exception as e:
-                raise ValueError(f"Template {self.prompt_template} not found in default folder: {e}")
-        elif self.prompt_text is not None:
-            self.template = Template(self.prompt_text)
+            prompt_dirs = []
+            if prompt_dir:
+                prompt_dirs.append(prompt_dir)
+            prompts_path = os.getenv("PROMPTS_PATH")
+            if prompts_path is not None:
+                prompt_dirs.extend(prompts_path.split(":"))
+            # Fallback to local folder and ~/ai-prompter
+            prompt_dirs.extend([os.getcwd(), os.path.expanduser("~/ai-prompter")])
+            # Default package prompts folder
+            if os.path.exists(prompt_path_default):
+                prompt_dirs.append(prompt_path_default)
+            env = Environment(loader=FileSystemLoader(prompt_dirs))
+            self.template = env.get_template(f"{self.prompt_template}.jinja")
         else:
-            raise ValueError("Prompter must have a prompt_template or prompt_text")
-
-        # Removed assertion as it's redundant with the checks above
-        # assert self.prompt_template or self.prompt_text, "Prompt is required"
+            self.template_text = template_text
+            self.template = Template(template_text)
 
     def to_langchain(self):
-        # only file-based templates supported for LangChain
-        if self.prompt_text is not None:
-            raise ImportError(
-                "langchain-core integration only supports file-based templates; install with `pip install .[langchain]`"
-            )
+        # Support for both text-based and file-based templates with LangChain
         try:
             from langchain_core.prompts import ChatPromptTemplate
         except ImportError:
             raise ImportError(
                 "langchain-core is required for to_langchain; install with `pip install .[langchain]`"
             )
-        if isinstance(self.template, str):
-            template_text = self.template
-        elif isinstance(self.template, Template):
-            # raw Jinja2 template object
-            template_text = self.prompt_text
+        if self.template_text is not None:
+            template_content = self.template_text
+        elif self.prompt_template is not None and self.template is not None:
+            # For file-based templates, we need to get the raw string content
+            if isinstance(self.template, Template):
+                # If we have a Jinja2 Template object, we might not have the raw string
+                # Try to read the file from the environment's loader search path
+                template_content = None
+                for searchpath in self.template.environment.loader.searchpath:
+                    template_file = os.path.join(
+                        searchpath, f"{self.prompt_template}.jinja"
+                    )
+                    if os.path.exists(template_file):
+                        with open(template_file, "r") as f:
+                            template_content = f.read()
+                        break
+                if template_content is None:
+                    raise ValueError(
+                        "Could not load file-based template content for LangChain conversion"
+                    )
+            else:
+                raise ValueError(
+                    "Template is not properly initialized for LangChain conversion"
+                )
         else:
-            # file-based template
-            prompt_dir = (
-                prompt_path_custom
-                if prompt_path_custom and os.path.exists(prompt_path_custom)
-                else prompt_path_default
+            raise ValueError(
+                "Either prompt_template with a valid template or template_text must be provided for LangChain conversion"
             )
-            template_file = os.path.join(prompt_dir, f"{self.prompt_template}.jinja")
-            with open(template_file, "r") as f:
-                template_text = f.read()
-        return ChatPromptTemplate.from_template(template_text, template_format="jinja2")
+        return ChatPromptTemplate.from_template(
+            template_content, template_format="jinja2"
+        )
 
     @classmethod
-    def from_text(cls, text: str):
-        """
-        Create a Prompter instance from raw text, which can contain Jinja code.
+    def from_text(
+        cls, text: str, model: Optional[Union[str, Any]] = None
+    ) -> "Prompter":
+        """Create a Prompter instance from raw text, which can contain Jinja code.
 
         Args:
-            text (str): The raw prompt text.
+            text (str): The raw template text.
+            model (Union[str, Any], optional): The model to use for generation.
 
         Returns:
             Prompter: A new Prompter instance.
         """
-
-        return cls(prompt_text=text)
+        return cls(template_text=text, model=model)
 
     def render(self, data: Optional[Union[Dict, BaseModel]] = None) -> str:
         """
