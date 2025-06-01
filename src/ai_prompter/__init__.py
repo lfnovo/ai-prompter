@@ -97,8 +97,27 @@ class Prompter:
             prompts_path = os.getenv("PROMPTS_PATH")
             if prompts_path is not None:
                 prompt_dirs.extend(prompts_path.split(":"))
-            # Fallback to local folder and ~/ai-prompter
-            prompt_dirs.extend([os.getcwd(), os.path.expanduser("~/ai-prompter")])
+            
+            # Add current working directory + /prompts
+            cwd_prompts = os.path.join(os.getcwd(), "prompts")
+            if os.path.exists(cwd_prompts):
+                prompt_dirs.append(cwd_prompts)
+            
+            # Try to find project root and add its prompts folder
+            current_path = os.getcwd()
+            while current_path != os.path.dirname(current_path):  # Stop at root
+                # Check for common project indicators
+                if any(os.path.exists(os.path.join(current_path, indicator)) 
+                       for indicator in ['pyproject.toml', 'setup.py', 'setup.cfg', '.git']):
+                    project_prompts = os.path.join(current_path, "prompts")
+                    if os.path.exists(project_prompts) and project_prompts not in prompt_dirs:
+                        prompt_dirs.append(project_prompts)
+                    break
+                current_path = os.path.dirname(current_path)
+            
+            # Fallback to ~/ai-prompter
+            prompt_dirs.append(os.path.expanduser("~/ai-prompter"))
+            
             # Default package prompts folder
             if os.path.exists(prompt_path_default):
                 prompt_dirs.append(prompt_path_default)
