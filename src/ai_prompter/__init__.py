@@ -122,7 +122,11 @@ class Prompter:
             if os.path.exists(prompt_path_default):
                 prompt_dirs.append(prompt_path_default)
             env = Environment(loader=FileSystemLoader(prompt_dirs))
-            self.template = env.get_template(f"{self.prompt_template}.jinja")
+            # Strip .jinja extension if present to avoid double extension
+            template_name = self.prompt_template
+            if template_name.endswith('.jinja'):
+                template_name = template_name[:-6]  # Remove '.jinja'
+            self.template = env.get_template(f"{template_name}.jinja")
             self.prompt_folders = prompt_dirs
         else:
             self.template_text = template_text
@@ -178,11 +182,11 @@ class Prompter:
                         if template_name in visited:
                             raise ValueError(f"Circular include detected for {template_name}")
                         visited.add(template_name)
-                        # Ensure we don't add .jinja if it's already in the name
-                        if template_name.endswith('.jinja'):
-                            template_file = os.path.join(base_dir, template_name)
-                        else:
-                            template_file = os.path.join(base_dir, f"{template_name}.jinja")
+                        # Strip .jinja extension if present to avoid double extension
+                        clean_name = template_name
+                        if clean_name.endswith('.jinja'):
+                            clean_name = clean_name[:-6]  # Remove '.jinja'
+                        template_file = os.path.join(base_dir, f"{clean_name}.jinja")
                         if not os.path.exists(template_file):
                             raise ValueError(f"Template file {template_file} not found")
                         with open(template_file, 'r', encoding='utf-8') as f:
@@ -228,7 +232,11 @@ class Prompter:
             return 'text'
         
         for folder in self.prompt_folders:
-            template_file = os.path.join(folder, f"{template_name}.jinja")
+            # Strip .jinja extension if present to avoid double extension
+            clean_name = template_name
+            if clean_name.endswith('.jinja'):
+                clean_name = clean_name[:-6]  # Remove '.jinja'
+            template_file = os.path.join(folder, f"{clean_name}.jinja")
             if os.path.exists(template_file):
                 return template_file
         

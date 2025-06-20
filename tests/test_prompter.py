@@ -187,3 +187,76 @@ def test_multiple_prompts_path():
                 ), "Should pick the first available template in PROMPTS_PATH"
             finally:
                 os.environ["PROMPTS_PATH"] = original_path
+
+
+def test_template_name_with_jinja_extension():
+    # Test that template names with .jinja extension work correctly
+    with tempfile.TemporaryDirectory() as temp_dir:
+        template_path = os.path.join(temp_dir, "test.jinja")
+        with open(template_path, "w") as f:
+            f.write("Hello {{ name }}!")
+        
+        # Test with extension
+        p1 = Prompter(prompt_template="test.jinja", prompt_dir=temp_dir)
+        result1 = p1.render({"name": "World"})
+        
+        # Test without extension (original behavior)
+        p2 = Prompter(prompt_template="test", prompt_dir=temp_dir)
+        result2 = p2.render({"name": "World"})
+        
+        # Both should produce identical results
+        assert result1 == result2 == "Hello World!"
+
+
+def test_template_name_with_jinja_extension_builtin():
+    # Test using the existing greet.jinja template with extension
+    tests_dir = os.path.dirname(__file__)
+    prompts_dir = os.path.join(tests_dir, "prompts")
+    
+    # Test with extension
+    p1 = Prompter(prompt_template="greet.jinja", prompt_dir=prompts_dir)
+    result1 = p1.render({"who": "Alice"})
+    
+    # Test without extension (original behavior)
+    p2 = Prompter(prompt_template="greet", prompt_dir=prompts_dir)
+    result2 = p2.render({"who": "Alice"})
+    
+    # Both should produce identical results
+    assert result1 == result2
+    assert result1 == "GREET Alice"
+
+
+def test_template_location_with_jinja_extension():
+    # Test template_location method with both formats
+    with tempfile.TemporaryDirectory() as temp_dir:
+        template_path = os.path.join(temp_dir, "locate_test.jinja")
+        with open(template_path, "w") as f:
+            f.write("Test content")
+        
+        p = Prompter(prompt_template="locate_test", prompt_dir=temp_dir)
+        
+        # Both should return the same location
+        location1 = p.template_location("locate_test")
+        location2 = p.template_location("locate_test.jinja")
+        
+        assert location1 == location2
+        assert location1.endswith("locate_test.jinja")
+        assert os.path.exists(location1)
+
+
+def test_langchain_conversion_with_jinja_extension():
+    # Test LangChain conversion works with .jinja extension in template name
+    with tempfile.TemporaryDirectory() as temp_dir:
+        template_path = os.path.join(temp_dir, "langchain_test.jinja")
+        with open(template_path, "w") as f:
+            f.write("Hello, {{ name }}!")
+        
+        # Test with extension
+        p = Prompter(prompt_template="langchain_test.jinja", prompt_dir=temp_dir)
+        lc_prompt = p.to_langchain()
+        assert lc_prompt is not None
+        assert hasattr(lc_prompt, "invoke")
+        
+        # Test invoking the template
+        result = lc_prompt.invoke({"name": "LangChain"})
+        assert "Hello, LangChain!" in str(result)

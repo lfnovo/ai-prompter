@@ -1,6 +1,6 @@
 [project]
 name = "ai-prompter"
-version = "0.3.0"
+version = "0.3.1"
 description = "A prompt management library using Jinja2 templates to build complex prompts easily."
 readme = "README.md"
 homepage = "https://github.com/lfnovo/ai-prompter"
