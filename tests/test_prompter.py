@@ -189,6 +189,43 @@ def test_multiple_prompts_path():
                 os.environ["PROMPTS_PATH"] = original_path
 
 
+def test_template_text_with_include():
+    # Test that {% include %} works in template_text mode
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Create a reusable fragment
+        fragment_path = os.path.join(temp_dir, "fragment.jinja")
+        with open(fragment_path, "w") as f:
+            f.write("Fragment says hello to {{ name }}!")
+
+        p = Prompter(
+            template_text="Before. {% include 'fragment.jinja' %} After.",
+            prompt_dir=temp_dir,
+        )
+        result = p.render({"name": "World"})
+        assert "Before." in result
+        assert "Fragment says hello to World!" in result
+        assert "After." in result
+
+
+def test_template_text_with_nested_include():
+    # Test nested includes in template_text mode
+    with tempfile.TemporaryDirectory() as temp_dir:
+        inner_path = os.path.join(temp_dir, "inner.jinja")
+        with open(inner_path, "w") as f:
+            f.write("inner({{ value }})")
+
+        outer_path = os.path.join(temp_dir, "outer.jinja")
+        with open(outer_path, "w") as f:
+            f.write("outer[{% include 'inner.jinja' %}]")
+
+        p = Prompter(
+            template_text="start {% include 'outer.jinja' %} end",
+            prompt_dir=temp_dir,
+        )
+        result = p.render({"value": "OK"})
+        assert result == "start outer[inner(OK)] end"
+
+
 def test_template_name_with_jinja_extension():
     # Test that template names with .jinja extension work correctly
     with tempfile.TemporaryDirectory() as temp_dir:
