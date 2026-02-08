@@ -75,6 +75,48 @@ class Prompter:
         self.prompt_folders = []
         self._setup_template(template_text, prompt_dir)
 
+    def _build_prompt_dirs(self, prompt_dir: Optional[str] = None) -> list[str]:
+        """Build the list of directories to search for prompt templates.
+
+        Args:
+            prompt_dir (str, optional): Custom directory to search for templates.
+
+        Returns:
+            list[str]: Ordered list of directories to search.
+        """
+        prompt_dirs = []
+        if prompt_dir:
+            prompt_dirs.append(prompt_dir)
+        prompts_path = os.getenv("PROMPTS_PATH")
+        if prompts_path is not None:
+            prompt_dirs.extend(prompts_path.split(":"))
+
+        # Add current working directory + /prompts
+        cwd_prompts = os.path.join(os.getcwd(), "prompts")
+        if os.path.exists(cwd_prompts):
+            prompt_dirs.append(cwd_prompts)
+
+        # Try to find project root and add its prompts folder
+        current_path = os.getcwd()
+        while current_path != os.path.dirname(current_path):  # Stop at root
+            # Check for common project indicators
+            if any(os.path.exists(os.path.join(current_path, indicator))
+                   for indicator in ['pyproject.toml', 'setup.py', 'setup.cfg', '.git']):
+                project_prompts = os.path.join(current_path, "prompts")
+                if os.path.exists(project_prompts) and project_prompts not in prompt_dirs:
+                    prompt_dirs.append(project_prompts)
+                break
+            current_path = os.path.dirname(current_path)
+
+        # Fallback to ~/ai-prompter
+        prompt_dirs.append(os.path.expanduser("~/ai-prompter"))
+
+        # Default package prompts folder
+        if os.path.exists(prompt_path_default):
+            prompt_dirs.append(prompt_path_default)
+
+        return prompt_dirs
+
     def _setup_template(
         self, template_text: Optional[str] = None, prompt_dir: Optional[str] = None
     ) -> None:
@@ -84,6 +126,10 @@ class Prompter:
             template_text (str, optional): The raw text of the template.
             prompt_dir (str, optional): Custom directory to search for templates.
         """
+        prompt_dirs = self._build_prompt_dirs(prompt_dir)
+        self.prompt_folders = prompt_dirs
+        env = Environment(loader=FileSystemLoader(prompt_dirs))
+
         if template_text is None:
             if self.prompt_template is None:
                 raise ValueError(
@@ -91,46 +137,14 @@ class Prompter:
                 )
             if not self.prompt_template:
                 raise ValueError("Template name cannot be empty")
-            prompt_dirs = []
-            if prompt_dir:
-                prompt_dirs.append(prompt_dir)
-            prompts_path = os.getenv("PROMPTS_PATH")
-            if prompts_path is not None:
-                prompt_dirs.extend(prompts_path.split(":"))
-            
-            # Add current working directory + /prompts
-            cwd_prompts = os.path.join(os.getcwd(), "prompts")
-            if os.path.exists(cwd_prompts):
-                prompt_dirs.append(cwd_prompts)
-            
-            # Try to find project root and add its prompts folder
-            current_path = os.getcwd()
-            while current_path != os.path.dirname(current_path):  # Stop at root
-                # Check for common project indicators
-                if any(os.path.exists(os.path.join(current_path, indicator)) 
-                       for indicator in ['pyproject.toml', 'setup.py', 'setup.cfg', '.git']):
-                    project_prompts = os.path.join(current_path, "prompts")
-                    if os.path.exists(project_prompts) and project_prompts not in prompt_dirs:
-                        prompt_dirs.append(project_prompts)
-                    break
-                current_path = os.path.dirname(current_path)
-            
-            # Fallback to ~/ai-prompter
-            prompt_dirs.append(os.path.expanduser("~/ai-prompter"))
-            
-            # Default package prompts folder
-            if os.path.exists(prompt_path_default):
-                prompt_dirs.append(prompt_path_default)
-            env = Environment(loader=FileSystemLoader(prompt_dirs))
             # Strip .jinja extension if present to avoid double extension
             template_name = self.prompt_template
             if template_name.endswith('.jinja'):
                 template_name = template_name[:-6]  # Remove '.jinja'
             self.template = env.get_template(f"{template_name}.jinja")
-            self.prompt_folders = prompt_dirs
         else:
             self.template_text = template_text
-            self.template = Template(template_text)
+            self.template = env.from_string(template_text)
             self.text_templates[self.prompt_template] = template_text
 
     def to_langchain(self):
