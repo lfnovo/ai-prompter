@@ -652,6 +652,14 @@ for template_name in ["welcome", "product_recommendation", "follow_up"]:
     print("---")
 ```
 
+## Security: Sandboxed Templates
+
+As of v0.4.0, all templates are rendered using Jinja2's `SandboxedEnvironment`. This prevents Server-Side Template Injection (SSTI) attacks by blocking access to dangerous Python internals (e.g. `__globals__`, `__subclasses__`, `os.popen`).
+
+For normal template usage — variables, filters, conditionals, loops, includes — this has no effect. The sandbox only restricts operations that should never appear in a prompt template, such as accessing private attributes or calling system functions.
+
+If a template attempts a restricted operation, a `jinja2.exceptions.SecurityError` will be raised.
+
 ## Advanced Features
 
 ### Including Other Templates
