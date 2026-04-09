@@ -281,6 +281,42 @@ def test_template_location_with_jinja_extension():
         assert os.path.exists(location1)
 
 
+def test_sandbox_blocks_globals_access():
+    """SSTI: accessing __globals__ to execute shell commands must raise SecurityError."""
+    p = Prompter(
+        template_text="{{ cycler.__init__.__globals__.os.popen('id').read() }}"
+    )
+    with pytest.raises(jinja2.exceptions.SecurityError):
+        p.render(data={})
+
+
+def test_sandbox_blocks_subclass_access():
+    """SSTI: accessing __subclasses__ for class traversal must raise SecurityError."""
+    p = Prompter(
+        template_text="{{ ''.__class__.__mro__[1].__subclasses__() }}"
+    )
+    with pytest.raises(jinja2.exceptions.SecurityError):
+        p.render(data={})
+
+
+def test_sandbox_allows_normal_rendering():
+    """Sandboxed environment should not interfere with normal template usage."""
+    p = Prompter(template_text="Hello {{ name }}")
+    result = p.render(data={"name": "world"})
+    assert result == "Hello world"
+
+
+def test_sandbox_file_template():
+    """Sandboxed environment works correctly with file-based templates."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        template_path = os.path.join(temp_dir, "safe.jinja")
+        with open(template_path, "w") as f:
+            f.write("Safe {{ value }}!")
+        p = Prompter(prompt_template="safe", prompt_dir=temp_dir)
+        result = p.render({"value": "content"})
+        assert result == "Safe content!"
+
+
 def test_langchain_conversion_with_jinja_extension():
     # Test LangChain conversion works with .jinja extension in template name
     with tempfile.TemporaryDirectory() as temp_dir:

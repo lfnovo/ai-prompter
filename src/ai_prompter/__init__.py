@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Union, Callable
 
 from jinja2 import Environment, FileSystemLoader, Template
+from jinja2.sandbox import SandboxedEnvironment
 from pydantic import BaseModel
 
 prompt_path_default = os.path.join(
@@ -15,7 +16,7 @@ prompt_path_default = os.path.join(
 )
 prompt_path_custom = os.getenv("PROMPTS_PATH")
 
-env_default = Environment(loader=FileSystemLoader(prompt_path_default))
+env_default = SandboxedEnvironment(loader=FileSystemLoader(prompt_path_default))
 
 
 @dataclass
@@ -128,7 +129,7 @@ class Prompter:
         """
         prompt_dirs = self._build_prompt_dirs(prompt_dir)
         self.prompt_folders = prompt_dirs
-        env = Environment(loader=FileSystemLoader(prompt_dirs))
+        env = SandboxedEnvironment(loader=FileSystemLoader(prompt_dirs))
 
         if template_text is None:
             if self.prompt_template is None:
